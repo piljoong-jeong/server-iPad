@@ -1,0 +1,2 @@
+g++ main.cpp Network.cpp getimages.cpp -std=c++17 -o server -O3 -I/usr/local/include/opencv4 -L/usr/local/lib/ -lopencv_core -lopencv_imgcodecs -lopencv_imgproc -lpthread -lz
+./server 0.0.0.0 12540 1024
