@@ -116,11 +116,8 @@ int main(int argc, char **argv) {
 
         prev_frame = frameID;
 
-        cv::imshow("color_received", color);
-        cv::imshow("depth_received", depth);
-        cv::imwrite("color_received.jpg", color);
-        cv::imwrite("depth_received.png", depth);
-        std::exit(0);
+        std::cout << "[DEBUG] fx fy cx cy = " << fx << " " << fy << " " << cx
+                  << " " << cy << "\n";
 
         continue;
 
