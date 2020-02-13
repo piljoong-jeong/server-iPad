@@ -66,6 +66,8 @@ int Meta::getFile(uint8_t *pkt) {
   return file_length;
 }
 
+bool Network::isRunning = true;
+
 Network::Network(const char *IP_ADDR, int PORT, int _packet_size, int _type) {
   type = _type;
   sock_fd = socket(AF_INET, SOCK_DGRAM, IP_PROTOCOL);
@@ -97,7 +99,7 @@ Network::Network(const char *IP_ADDR, int PORT, int _packet_size, int _type) {
   packet_size = _packet_size;
 
   sender = std::thread([this]() {
-    while (1) {
+    while (isRunning) {
       Data d = q.dequeue();
 
       for (int i = 0; i < d.packet_length; i++) {
@@ -117,6 +119,10 @@ Network::Network(const char *IP_ADDR, int PORT, int _packet_size, int _type) {
 
   if (type == CLIENT)
     sendSys(); // To clear up the previous works
+}
+
+Network::~Network() {
+  isRunning = false;
 }
 
 void Network::sendColor(int frame_num, uint8_t *content, int file_length) {
@@ -299,7 +305,8 @@ uint8_t *Network::recvData(int &mode, int &frame, int &file_length) {
       delete[] buf;
       return result;
     }
-  } while (1);
+  } while (isRunning);
+    return nullptr;
 }
 
 } // namespace rtabmap
