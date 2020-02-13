@@ -11,6 +11,11 @@ int GetImage::color_file_len, GetImage::depth_file_len, GetImage::meta_file_len;
 cv::Mat GetImage::color_mat, GetImage::depth_mat;
 float *GetImage::meta_arr;
 int GetImage::frame_sync, GetImage::meta_arr_size, GetImage::internal_frame;
+bool GetImage::isRunning = true;
+
+void GetImage::stop() {
+    isRunning = false;
+}
 
 void GetImage::getImage(cv::Mat &color, cv::Mat &depth, float *arr, float &cx,
                         float &cy, float &fx, float &fy, int &frameID) {
@@ -42,7 +47,7 @@ void GetImage::initRecv(Network *net) {
 
   std::thread t1 = std::thread([net]() {
     int mode, frame, file_length;
-    while (1) {
+    while (isRunning) {
       uint8_t *buf = net->recvData(mode, frame, file_length);
       if (mode == Network::COLOR) {
         color_m.lock();
@@ -89,11 +94,12 @@ void GetImage::initRecv(Network *net) {
         meta_m.unlock();
       }
     }
+      
   });
   t1.detach();
 
   std::thread t2 = std::thread([]() {
-    while (1) {
+    while (isRunning) {
       bool color_acq = color_m.try_lock();
       bool depth_acq = depth_m.try_lock();
       bool meta_acq = meta_m.try_lock();
@@ -101,7 +107,7 @@ void GetImage::initRecv(Network *net) {
       if (color_acq && depth_acq && meta_acq && color_frame_id != -1 &&
           color_frame_id != internal_frame &&
           color_frame_id == depth_frame_id && depth_frame_id == meta_frame_id) {
-        printf("ID : %d\n", color_frame_id);
+        //printf("ID : %d\n", color_frame_id);
         internal_frame = color_frame_id;
         uint8_t *color_tmp_buf = new uint8_t[color_file_len];
         uint8_t *depth_tmp_buf = new uint8_t[depth_file_len];

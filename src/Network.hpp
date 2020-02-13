@@ -89,6 +89,7 @@ public:
   enum type2 { SERVER, CLIENT };
 
   Network(const char *, int, int, int);
+  ~Network();
 
   // Related to Send Feature
   void sendColor(int, uint8_t *, int);
@@ -114,6 +115,7 @@ private:
 
   // Memory Clean
   static void gc(int);
+  static bool isRunning;
 };
 
 } // namespace rtabmap
