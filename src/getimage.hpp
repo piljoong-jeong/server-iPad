@@ -18,7 +18,7 @@ class GetImage {
   static int frame_sync, meta_arr_size, internal_frame;
   static bool isRunning;
 public:
-  static void getImage(cv::Mat &color, cv::Mat &depth, float *arr, float &cx,
+  static void getImage(cv::Mat &color, cv::Mat &depth, float *&arr, float &cx,
                        float &cy, float &fx, float &fy, int &frameID);
   static void initRecv(Network *net);
   static void stop();
