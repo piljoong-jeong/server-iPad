@@ -17,7 +17,7 @@ void GetImage::stop() {
     isRunning = false;
 }
 
-void GetImage::getImage(cv::Mat &color, cv::Mat &depth, float *arr, float &cx,
+void GetImage::getImage(cv::Mat &color, cv::Mat &depth, float *&arr, float &cx,
                         float &cy, float &fx, float &fy, int &frameID) {
   mat_m.lock();
   if (color_mat.empty() || depth_mat.empty() || meta_arr == nullptr) {
@@ -28,12 +28,15 @@ void GetImage::getImage(cv::Mat &color, cv::Mat &depth, float *arr, float &cx,
     frameID = frame_sync;
 
     arr = new float[16];
-    memcpy(arr, meta_arr, 16 * sizeof(float));
+    for (int i = 0; i < 16; i++) {
+        arr[i] = meta_arr[i];
+    }
+    //memcpy(arr, meta_arr, 16 * sizeof(float));
     cx = meta_arr[16];
     cy = meta_arr[17];
     fx = meta_arr[18];
     fy = meta_arr[19];
-    // printf("%f %f %f %f %f %f\n", arr[0], arr[1], cx, cy, fx, fy);
+
   }
   mat_m.unlock();
 }
