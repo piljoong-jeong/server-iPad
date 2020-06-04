@@ -1,8 +1,6 @@
 #pragma once
 
-#ifndef ZLIB_CONST
-#define ZLIB_CONST
-#endif
+#include "common.h"
 
 // zlib
 #include <zlib.h>
@@ -12,7 +10,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace rtabmap {
+namespace CG {
 
 namespace gzip {
 
@@ -53,7 +51,7 @@ public:
       throw std::runtime_error("inflate init failed");
     }
 #pragma GCC diagnostic pop
-    inflate_s.next_in = reinterpret_cast<z_const Bytef *>(data);
+    inflate_s.next_in = reinterpret_cast<z_const Bytef *>(&data);
 
 #ifdef DEBUG
     // Verify if size (long type) input will fit into unsigned int, type used
@@ -106,4 +104,4 @@ inline std::string decompress(const char *data, std::size_t size) {
 
 } // namespace gzip
 
-} // namespace rtabmap
+} // namespace CG

@@ -1,6 +1,6 @@
-#include "Network.hpp"
-#include "decompress.hpp"
 #include "getimage.hpp"
+#include "network.hpp"
+#include "server.hpp"
 #include <iostream>
 #include <mutex>
 #include <opencv2/core/core.hpp>
@@ -9,9 +9,8 @@
 #include <opencv2/opencv.hpp>
 #include <thread>
 
+#include <iomanip>
 #include <string>
-
-using namespace rtabmap;
 
 std::string type2str(int type) {
   std::string r;
@@ -52,142 +51,89 @@ std::string type2str(int type) {
   return r;
 }
 
-std::mutex m;
-cv::Mat lookUpTable(1, 256, CV_8U);
-Network *net;
-/* void runSth(uint8_t *data_c, uint8_t *data_d, int color_frame, int
-depth_frame, int file_length) { cout << "Processing Color " << endl; Mat img;
-    vector<uint8_t> ImVec(data_c, data_c + file_length);
-
-    img = imdecode(ImVec, 1);
-    Mat res = img.clone();
-
-    cout << res.cols << res.rows << endl;
-    LUT(img, lookUpTable, res);
-    if (depth_map != NULL) {
-        Mat r1 = Mat(480, 640, CV_32F, depth_map);
-        Mat r2 = Mat(480, 640, CV_32FC3);
-        res.convertTo(r2, CV_32FC3);
-        Mat r3 = Mat(480, 640, CV_32FC3);
-        cvtColor(r1, r3, COLOR_GRAY2RGB);
-        Mat r4 = r2.mul(r3);
-        Mat r5 = Mat(480, 640, CV_8UC3);
-        r4.convertTo(r5, CV_8UC3);
-        res = r5;
-    }
-    vector<uint8_t> buff;//buffer for coding
-    vector<int> param(2);
-    param[0] = cv::IMWRITE_JPEG_QUALITY;
-    param[1] = 95;
-    imencode(".jpg", res, buff, param);
-    file_length = buff.size();
-
-    net->sendColor(color_frame, &buff[0], file_length);
-    cout << "Processing Color done " << endl;
-} */
-
 int main(int argc, char **argv) {
-  if (argc != 4) {
-    exit(EXIT_FAILURE);
+
+  const std::string IP_ADDR = "0.0.0.0";
+  int network_ip_port = 12540;
+  int network_packet_size = 1024;
+  CG::Server *server = new CG::Server(network_ip_port, network_packet_size);
+
+  std::vector<cv::Mat> v_received_rgb;
+  v_received_rgb.reserve(10000);
+  std::vector<cv::Mat> v_received_depth;
+  v_received_depth.reserve(10000);
+  std::vector<Eigen::Matrix4f> v_received_pose;
+  v_received_pose.reserve(10000);
+
+  size_t seconds = 1;
+  bool receiving = false;
+  while (server->firstReceived == false) {
+    std::cout << receiving << " [DEBUG] Waiting for camera connection ...("
+              << seconds++ << "s)\n";
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
   }
 
-  uint8_t *p = lookUpTable.ptr();
-  for (int i = 0; i < 256; ++i)
-    p[i] = cv::saturate_cast<uchar>(pow(i / 255.0, 0.4f) * 255.0);
+  server->setImageCallback([&](uint8_t *color, uint16_t *depth, float arr[16],
+                               float cx, float cy, float fx, float fy,
+                               int frameID) {
+    server->firstReceived = true;
+    int width = 640, height = 480;
+    cv::Mat color_org = cv::Mat(height, width, CV_8UC3, color);
+    cv::Mat color_mat = cv::Mat(height, width, CV_8UC3);
+    cv::cvtColor(color_org, color_mat, CV_BGR2RGB);
+    cv::Mat depth_mat = cv::Mat(height, width, CV_16UC1);
+    std::memcpy(depth_mat.data, depth, height * width * 2);
 
-  char *IP_ADDR = argv[1];
-  int IP_PORT = atoi(argv[2]);
-  int PACKET_SIZE = atoi(argv[3]);
-  net = new Network(IP_ADDR, IP_PORT, PACKET_SIZE, Network::SERVER);
-  GetImage::initRecv(net);
+    // server->sendColor(color_org.data, frameID, width, height);
+    // server->sendDepth(color_org.data, frameID, width, height);
 
-  int prev_frame = -1;
-  while (1) {
-    cv::Mat color, depth;
-    float *arr;
-    float cx, cy, fx, fy;
-    int frameID;
+    float *arr_copy = new float[16];
+    memcpy(arr_copy, arr, 16 * sizeof(float));
+    Eigen::Matrix4f pose_from_sdk =
+        Eigen::Map<Eigen::Matrix<float, 4, 4>>(arr_copy);
 
-    GetImage::getImage(color, depth, arr, cx, cy, fx, fy, frameID);
-    if (frameID != -1) {
+    // std::cout << pose_from_sdk << "\n";
 
-      if (prev_frame != frameID) {
-        // std::cout << "[DEBUG] received new frame; id = " << frameID << "\n";
+    v_received_rgb.emplace_back(cv::Mat(color_mat));
+    v_received_depth.emplace_back(cv::Mat(depth_mat));
+    v_received_pose.emplace_back(
+        Eigen::Map<Eigen::Matrix<float, 4, 4>>(arr_copy));
+  });
 
-        prev_frame = frameID;
+  size_t wait_until = 10;
+  size_t elapsed = 0;
+  while (elapsed < wait_until) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    ++elapsed;
 
-        std::cout << "[DEBUG] fx fy cx cy = " << fx << " " << fy << " " << cx
-                  << " " << cy << "\n";
+    std::cout << "[Info] elapsed = " << elapsed << "s\n";
+  }
 
-        continue;
+  std::string dir_dataset = "./received/";
+  for (size_t i = 0; i < v_received_rgb.size(); i++) {
 
-        int min = 256;
-        int max = -1;
-        cv::Mat rgb = cv::Mat(480, 640, CV_8UC3);
-        // printf("%f %f %f %f\n", cx, cy, fx, fy);
+    std::cout << "[Info] saving color / depth / pose for frame #" << i
+              << "... ";
 
-        for (int i = 0; i < 480; i++) {
-          for (int j = 0; j < 640; j++) {
-            uint16_t elem1 = depth.at<uint16_t>(i, j);
-            uint16_t elem2 = ((elem1 & 0xFF) << 8) + ((elem1 & 0xFF00) >> 8);
-            float elem = (float)elem2;
-            // cout << type2str(depth.type()) << endl;
-            int lim0 = 0, lim1 = 64 * 40, lim2 = 128 * 40, lim3 = 192 * 40,
-                lim4 = 256 * 40;
-            /* int lim0 = 13;
-            int lim1 = 23;
-            int lim2 = 35;
-            int lim3 = 60;
-            int lim4 = 90; */
+    std::ostringstream out_filename_rgb;
+    out_filename_rgb << dir_dataset << "color/" << std::setw(5)
+                     << std::setfill('0') << i << ".png";
+    cv::imwrite(out_filename_rgb.str(), v_received_rgb[i]);
 
-            if (elem == 0) {
-              rgb.at<cv::Vec3b>(i, j)[2] = 255;
-              rgb.at<cv::Vec3b>(i, j)[1] = 255;
-              rgb.at<cv::Vec3b>(i, j)[0] = 255;
-            } else if (elem < 64.0 * 40.0) {
-              rgb.at<cv::Vec3b>(i, j)[2] = 255;
-              rgb.at<cv::Vec3b>(i, j)[1] = static_cast<uint8_t>(
-                  (255.0 * (elem - 0.0 * 40.0) / (float)(64.0 * 40.0)));
-              rgb.at<cv::Vec3b>(i, j)[0] = 0;
-            } else if (elem < 128.0 * 40.0) {
-              rgb.at<cv::Vec3b>(i, j)[2] = static_cast<uint8_t>(
-                  (255.0 * (elem - 64.0 * 40.0) / (float)(64.0 * 40.0)));
-              rgb.at<cv::Vec3b>(i, j)[1] = 255;
-              rgb.at<cv::Vec3b>(i, j)[0] = 0;
-            } else if (elem < 192.0 * 40.0) {
-              rgb.at<cv::Vec3b>(i, j)[2] = 0;
-              rgb.at<cv::Vec3b>(i, j)[1] = 255;
-              rgb.at<cv::Vec3b>(i, j)[0] = static_cast<uint8_t>(
-                  (255.0 * (elem - 128.0 * 40.0) / (float)(64.0 * 40.0)));
-            } else {
-              rgb.at<cv::Vec3b>(i, j)[2] = 0;
-              rgb.at<cv::Vec3b>(i, j)[1] =
-                  static_cast<uint8_t>((255.0 * (elem - 192.0 * 40.0) /
-                                        (float)(255.0 * 40.0 - 192.0 * 40.0)));
-              rgb.at<cv::Vec3b>(i, j)[0] = 255;
-            }
-          }
-        }
-        // cout << min << " " << max << endl;
+    std::ostringstream out_filename_depth;
+    out_filename_depth << dir_dataset << "depth/" << std::setw(5)
+                       << std::setfill('0') << i << ".png";
+    cv::imwrite(out_filename_depth.str(), v_received_depth[i]);
 
-        /*Mat r1 = Mat(480, 640, CV_16UC3);
-        cvtColor(depth, r1, COLOR_GRAY2RGB);
-        Mat r2 = Mat(480, 640, CV_8UC3);
-        r1.convertTo(r2, CV_8UC3);
-        r2 = 0.5 * r2;
-        r2 = r2 + 0.5 * color; */
+    std::ostringstream out_filename_pose;
+    out_filename_pose << dir_dataset << "odometry/" << std::setw(5)
+                      << std::setfill('0') << i << ".txt";
+    auto out_file_pose = std::ofstream(out_filename_pose.str());
+    out_file_pose << v_received_pose[i] << "\n";
+    out_file_pose.close();
 
-        // Mat r2 = color;
-        cv::Mat r2 = rgb;
-        std::vector<uint8_t> buff;
-        std::vector<int> param(2);
-        param[0] = cv::IMWRITE_JPEG_QUALITY;
-        param[1] = 100;
-        cv::imencode(".jpg", r2, buff, param);
-
-        net->sendColor(frameID, &buff[0], buff.size());
-      }
-    }
+    std::cout << "done.\n";
   }
 
   std::exit(EXIT_SUCCESS);

@@ -11,7 +11,14 @@ find_package(OpenCV 3 REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Threads) # for pthreads; Ubuntu confirmed, MSVC may not be compatible
 
-add_executable(${PROJECT_NAME} src/main.cpp src/Network.cpp src/getimages.cpp)
+add_executable(${PROJECT_NAME} 
+    src/main.cpp 
+    
+    src/getimage.cpp
+    src/common.cpp 
+    src/network.cpp
+    src/server.cpp
+)
 
 target_include_directories(${PROJECT_NAME} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -22,4 +29,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 target_link_libraries(${PROJECT_NAME} 
     ${CMAKE_THREAD_LIBS_INIT}
     ${OpenCV_LIBS}
+    zstd
+    jpeg
+    png
 )

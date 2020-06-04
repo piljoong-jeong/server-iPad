@@ -1,18 +1,16 @@
-//
-//  Network.cpp
-//  Viewer
-//
-//  Created by  CGLAB_MAC on 2020/01/06.
-//
+#include "network.hpp"
 
-#include "./Network.hpp"
+// https://blog.cloudflare.com/how-to-receive-a-million-packets/
+// Check the website above for increasing network performance
+
+#if defined(_MSC_VER)
+#include <Windows.h>
+#endif
 
 #define IP_PROTOCOL 0
 #define sendrecvflag 0
 
-// using namespace std;
-
-namespace rtabmap {
+namespace CG {
 
 int Meta::getMode(uint8_t *pkt) {
   int mod_id = 0;
@@ -70,6 +68,16 @@ bool Network::isRunning = true;
 
 Network::Network(const char *IP_ADDR, int PORT, int _packet_size, int _type) {
   type = _type;
+
+#if defined(_MSC_VER)
+  WSADATA wsa;
+  std::cout << "Initializing Winsock" << std::endl;
+  if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+    std::cerr << "Initialization Failure" << std::endl;
+    exit(EXIT_FAILURE);
+  }
+#endif
+
   sock_fd = socket(AF_INET, SOCK_DGRAM, IP_PROTOCOL);
 
   if (sock_fd < 0) {
@@ -96,33 +104,76 @@ Network::Network(const char *IP_ADDR, int PORT, int _packet_size, int _type) {
     }
   }
 
+#if defined(_MSC_VER)
+  int bsize, len = sizeof(bsize);
+  getsockopt(sock_fd, SOL_SOCKET, SO_SNDBUF, (char *)&bsize, &len);
+  std::cout << "PACKET SND : " << bsize << std::endl;
+  getsockopt(sock_fd, SOL_SOCKET, SO_RCVBUF, (char *)&bsize, &len);
+  std::cout << "PACKET RCV : " << bsize << std::endl;
+  bsize = 1024 * 1024 * 200;
+  setsockopt(sock_fd, SOL_SOCKET, SO_SNDBUF, (char *)&bsize, len);
+  setsockopt(sock_fd, SOL_SOCKET, SO_RCVBUF, (char *)&bsize, len);
+  getsockopt(sock_fd, SOL_SOCKET, SO_SNDBUF, (char *)&bsize, &len);
+  std::cout << "PACKET SND : " << bsize << std::endl;
+  getsockopt(sock_fd, SOL_SOCKET, SO_RCVBUF, (char *)&bsize, &len);
+  std::cout << "PACKET RCV : " << bsize << std::endl;
+#else
+  int bsize, len = sizeof(bsize);
+  getsockopt(sock_fd, SOL_SOCKET, SO_SNDBUF, &bsize, (socklen_t *)&len);
+  std::cout << "PACKET SND : " << bsize << std::endl;
+  getsockopt(sock_fd, SOL_SOCKET, SO_RCVBUF, &bsize, (socklen_t *)&len);
+  std::cout << "PACKET RCV : " << bsize << std::endl;
+  bsize = 1024 * 1024 * 800;
+  int priority = 7;
+  setsockopt(sock_fd, SOL_SOCKET, SO_SNDBUF, &bsize, (socklen_t)len);
+  setsockopt(sock_fd, SOL_SOCKET, SO_RCVBUF, &bsize, (socklen_t)len);
+  setsockopt(sock_fd, SOL_SOCKET, SO_PRIORITY, &priority,
+             (socklen_t)sizeof(priority));
+  getsockopt(sock_fd, SOL_SOCKET, SO_SNDBUF, &bsize, (socklen_t *)&len);
+  std::cout << "PACKET SND : " << bsize << std::endl;
+  getsockopt(sock_fd, SOL_SOCKET, SO_RCVBUF, &bsize, (socklen_t *)&len);
+  std::cout << "PACKET RCV : " << bsize << std::endl;
+#endif
+
   packet_size = _packet_size;
 
-  sender = std::thread([this]() {
-    while (isRunning) {
+  sender = std::thread([&]() {
+    while (Network::isRunning) {
       Data d = q.dequeue();
 
       for (int i = 0; i < d.packet_length; i++) {
         if (type == CLIENT)
+#if defined(_MSC_VER)
+          sendto(sock_fd, (const char *)d.packets[i], packet_size, sendrecvflag,
+                 (struct sockaddr *)&sock_con, sizeof(sock_con));
+#else
           sendto(sock_fd, d.packets[i], packet_size, sendrecvflag,
                  (struct sockaddr *)&sock_con, sizeof(sock_con));
+#endif
         else
+#if defined(_MSC_VER)
+          sendto(sock_fd, (const char *)d.packets[i], packet_size, sendrecvflag,
+                 (struct sockaddr *)&cli_con, sizeof(cli_con));
+#else
           sendto(sock_fd, d.packets[i], packet_size, sendrecvflag,
                  (struct sockaddr *)&cli_con, sizeof(cli_con));
+#endif
 
         delete[] d.packets[i];
       }
       delete[] d.packets;
     }
   });
-  sender.detach();
+  CG::setPriority(&sender, 2);
 
   if (type == CLIENT)
-    sendSys(); // To clear up the previous works
+    sendClear(); // To clear up the previous works
 }
 
 Network::~Network() {
   isRunning = false;
+
+  sender.join();
 }
 
 void Network::sendColor(int frame_num, uint8_t *content, int file_length) {
@@ -137,11 +188,15 @@ void Network::sendMeta(int frame_num, uint8_t *content, int file_length) {
   sendData(frame_num, content, file_length, META);
 }
 
-void Network::sendSys() {
+void Network::sendSys(uint8_t in) {
   uint8_t *a = new uint8_t[1];
-  a[0] = 0x00;
+  a[0] = in;
   sendData(0, a, 1, SYS);
 }
+
+void Network::sendEnd() { sendSys(1); }
+
+void Network::sendClear() { sendSys(0); }
 
 void Network::sendData(int frame_num, uint8_t *content, int file_length,
                        int mode) {
@@ -196,11 +251,21 @@ uint8_t *Network::recvData(int &mode, int &frame, int &file_length) {
     size_t nBytes;
     socklen_t size = sizeof(sock_con);
     if (type == CLIENT)
+#if defined(_MSC_VER)
+      nBytes = recvfrom(sock_fd, (char *)buf, packet_size, sendrecvflag,
+                        (struct sockaddr *)&sock_con, &size);
+#else
       nBytes = recvfrom(sock_fd, buf, packet_size, sendrecvflag,
                         (struct sockaddr *)&sock_con, &size);
+#endif
     else
+#if defined(_MSC_VER)
+      nBytes = recvfrom(sock_fd, (char *)buf, packet_size, sendrecvflag,
+                        (struct sockaddr *)&cli_con, &size);
+#else
       nBytes = recvfrom(sock_fd, buf, packet_size, sendrecvflag,
                         (struct sockaddr *)&cli_con, &size);
+#endif
 
     if (nBytes != packet_size)
       continue;
@@ -276,12 +341,14 @@ uint8_t *Network::recvData(int &mode, int &frame, int &file_length) {
         clean_color = 0;
         clean_depth = 0;
         clean_meta = 0;
-        std::cout << "Server Network HashMap cleaned" << std::endl;
+        std::cout << "Server network HashMap cleaned" << std::endl;
       }
 
       mode = mode_temp;
       frame = -1;
-      return nullptr;
+
+      file_length = frame_file_length;
+      return buf;
 
     default:
       res = NULL;
@@ -295,18 +362,23 @@ uint8_t *Network::recvData(int &mode, int &frame, int &file_length) {
       file_length = frame_file_length;
       frame = frame_id;
 
-      if (mode == COLOR)
+      if (mode == COLOR) {
+        delete color_frames[frame_id];
         color_frames.erase(color_frames.find(frame_id));
-      else if (mode == DEPTH)
+      } else if (mode == DEPTH) {
+        delete depth_frames[frame_id];
         depth_frames.erase(depth_frames.find(frame_id));
-      else if (mode == META)
+      } else if (mode == META) {
+        delete meta_frames[frame_id];
         meta_frames.erase(meta_frames.find(frame_id));
-
-      delete[] buf;
+      }
+      free(buf);
       return result;
     }
   } while (isRunning);
-    return nullptr;
+
+  free(buf);
+  return nullptr;
 }
 
-} // namespace rtabmap
+} // namespace CG

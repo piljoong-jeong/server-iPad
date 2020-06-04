@@ -1,20 +1,14 @@
-//
-//  SafeQueue.hpp
-//  Viewer
-//
 //  Copied from
 //  https://stackoverflow.com/questions/15278343/c11-thread-safe-queue
 //
 
 #pragma once
-#ifndef SafeQueue_h
-#define SafeQueue_h
 
 #include <condition_variable>
 #include <mutex>
 #include <queue>
 
-namespace rtabmap {
+namespace CG {
 
 // A threadsafe-queue.
 template <class T> class SafeQueue {
@@ -48,6 +42,4 @@ private:
   mutable std::mutex m;
   std::condition_variable c;
 };
-} // namespace rtabmap
-
-#endif /* SafeQueue_h */
+} // namespace CG

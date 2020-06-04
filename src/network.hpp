@@ -1,29 +1,28 @@
-//
-//  Network.hpp
-//  Viewer
-//
-//  Created by  CGLAB_MAC on 2020/01/06.
-//
-
 #pragma once
-#ifndef Network_hpp
-#define Network_hpp
 
-#include "./SafeQueue.hpp"
+#if defined(_MSC_VER)
+#include <WinSock2.h>
+#pragma comment(lib, "Ws2_32.lib")
+typedef int socklen_t;
+#else
 #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
+#include "common.h"
+#include "safequeue.hpp"
 #include <iostream>
 #include <memory>
-#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <thread>
-#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
 
-namespace rtabmap {
+namespace CG {
 
 class Meta {
 public:
@@ -95,13 +94,14 @@ public:
   void sendColor(int, uint8_t *, int);
   void sendDepth(int, uint8_t *, int);
   void sendMeta(int, uint8_t *, int);
-
+  void sendEnd();
   // Related to Recv Feature
   uint8_t *recvData(int &, int &, int &);
 
 private:
   // Related to Send Feature
-  void sendSys();
+  void sendClear();
+  void sendSys(uint8_t);
   void sendData(int, uint8_t *, int, int);
 
   // Member
@@ -118,6 +118,4 @@ private:
   static bool isRunning;
 };
 
-} // namespace rtabmap
-
-#endif /* Network_hpp */
+} // namespace CG
